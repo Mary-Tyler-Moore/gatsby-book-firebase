@@ -8,7 +8,25 @@ const admin = require('firebase-admin')
 // });
 admin.initializeApp();
 
+exports.createPublicProfile = functions.https.onCall( async (data, context) => {
+    checkAuthentication(context);
+    dataValidator(data, {username: 'string'})
+
+    const userProfile = await admin.firestore().collection('publicProfiles').where('userId', '==', context.auth.uid).limit(1).get();
+    if(!userProfile.empty) throw new functions.https.HttpsError('alread-exists', 'This user already has a public profile.')
+
+    const publicProfile = await admin.firestore().collection('publicProfiles').doc(data.username).get();
+    if(publicProfile.exists) throw new functions.https.HttpsError('alread-exists', 'This username already belongs to an existing user.')
+
+    return admin.firestore().collection('publicProfiles').doc(data.username).set({userId: context.auth.uid})
+});
+
 exports.postComment = functions.https.onCall( (data, context) => {
+    checkAuthentication(context);
+    dataValidator(data, {
+        bookId: 'string',
+        text: 'string'
+    })
 
     const db = admin.firestore();
     return db.collection('publicProfiles').where('userId', '==', context.auth.uid).limit(1).get().then( (snapshot) => {
@@ -20,3 +38,19 @@ exports.postComment = functions.https.onCall( (data, context) => {
         })
     })
 })
+
+function dataValidator(data, validKeys){
+    if(Object.keys(data).length !== Object.keys(validKeys).length) 
+        throw new functions.https.HttpsError('invalid-arguement', 'Data object contains invalid number of properties')
+    else
+        for(let key in data){
+            if(!validKeys[key] || typeof data[key] !== validKeys[key]){
+                throw new functions.https.HttpsError('invalid-arguement', 'Data object contains invalid properties')
+            }
+        }
+
+}
+
+function checkAuthentication(context){
+    if(!context.auth) throw new functions.https.HttpsError('unauthenticated', 'You must be signed in to use this feature');
+}
